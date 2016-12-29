@@ -1,0 +1,107 @@
+---
+title: "korean"
+output: html_document
+---
+
+앞서 살펴본 데이터 전처리와 네트워크 분석 코드는 모두 영어를 대상으로 하고 있었습니다. R은 물론 한글 문자열 처리 역시 완벽하게 지원합니다. 여기서는 데이터가 한국어일 경우화데이터 전처리와 공출현 빈도 행렬 생성, 그리고 네트워크 데이터로의 전환을 어떻게 하면 되는지 간단하게 다룹니다. 
+
+여기에서 예제로 사용할 데이터는 제가 수집했던 민주당의 2016년 논평 200여 개입니다. 데이터 크롤링 단계에서부터 한글을 제외한 숫자, 영문자, 특수문자 등은 모두 제거되어 있는 상태입니다.
+
+먼저 데이터를 읽어와야 합니다. 제 데이터는 csv 파일 형식으로 1열에는 논평의 url, 2열에는 발표된 날짜, 3열에 논평 본문을 저장해 놓았습니다. R에서 데이터 프레임 형식으로 이 파일을 읽어온 다음, 3열에 있는 본문 텍스트만을 분석 대상으로 사용하면 됩니다. 먼저 파일을 읽어오도록 하겠습니다. csv 파일을 저장할 때에는 크게 문제가 안 되나, 읽어올 때에는 readr 패키지를 불러와서 read_csv(.이 아니라 _입니다) 함수를 사용하는 것이 좋습니다.
+
+```{r}
+library(readr)
+data <- read_csv("~/Git/kdiworkshop2016/Data/kor/minjoo2016.csv", col_names = FALSE)
+data[1,]
+```
+
+data 변수에 데이터를 불러왔습니다. 이제 이 데이터 프레임의 3열에 있는 자료만을 변수에 할당합니다.
+
+```{r}
+data<-data[[3]]
+data[1]
+```
+
+총 200개의 논평 데이터가 모였습니다. 이 논평 데이터를 활용해서 아까와 같은 단어의 공출현 빈도 행렬을 만들 것입니다. 그런데 여기에서 한 가지 문제가 생깁니다. 영어의 경우 tm 패키지를 사용해서 같은 의미를 가진 단어들을 골라냈지만, 한글의 경우에는 어떻게 그러한 작업을 수행할 수 있을까요. 여기에서는 KoNLP 패키지를 사용하면 됩니다.
+
+```{r}
+library(KoNLP)
+
+t="이재정 원내대변인 오전 현안 추가 서면 브리핑 의원총회 결과 서면 브리핑 박근혜 대통령 탄핵소추안 발의 일정과 담길 내용에 관한 논의들이 있었다"
+
+extractNoun(t)
+SimplePos22(t)
+SimplePos09(t)
+```
+
+
+KoNLP 패키지는 텍스트 데이터를 받아서 형태소 단위로 분리해 주는 유용한 함수를 제공합니다. 명사만을 추출하는 extractNoun, 형용사나 부사 등 다른 문장 성분들까지 추출하고 형태소 단위로 분리해 주는 SimplePos09,22 함수가 있습니다. 보통 텍스트의 의미를 파악할 때에는 명사만을 추출해서 사용하는 경우가 대부분입니다. 동사나 형용사, 부사의 경우 부분적으로 의미가 있는 경우도 있지만 한국어 서술어는 대부분 '명사 + 하다'와 같은 형식으로 결합되어 있기 때문입니다.
+
+그런데 여기에서 한 가지 문제가 있습니다. 이는 고유명사 처리에 관한 것인데, 예를 들어서 다음과 같은 텍스트를 명사 추출 함수로 처리해 보겠습니다.
+
+```{r}
+w='선거관리위원회.'
+extractNoun(w)
+```
+
+고유명사에 해당하는 선거관리위원회라는 단어가 분리된 단어로 취급되어 나뉘어진 것을 알 수 있습니다. 이러한 상황을 방지하기 위해서는 KoNLP 패키지에 내장된 말뭉치와 유저 사전을 만들어야 합니다. 내장 사전과 말뭉치 데이터를 불러오기 위해선 다음과 같은 함수를 사용해야 합니다. 
+
+```{r}
+useNIADic()
+term=c("선거관리위원회")
+tag=rep("ncn",times=length(term))
+user_dic=data.frame(term=term, tag=tag)
+buildDictionary(ext_dic = c('sejong','insighter', 'woorimalsam'), user_dic=user_dic,replace_usr_dic = T)
+extractNoun(w)
+```
+
+유저 사전을 통해 '선거관리위원회'라는 단어를 고유명사로 등록하자 명사를 추출해도 단어가 나뉘어지지 않고 그대로 남겨지는 것을 알 수 있습니다. 단어를 추가하려 할 경우 유저 사전의 term이라는 변수에 할당하는 문자열 벡터에 새로운 단어들을 추가하면 됩니다. 그러면 이러한 KoNLP의 함수를 사용해서 본격적으로 co-occurence matrix를 만들어 보도록 하겠습니다. 영어 자료를 처리할 때에는 stemDocument라는 함수를 사용했다면, 여기서는 extractNoun함수를 사용하게 됩니다. extractNoun 함수를 활용해 
+
+```{r}
+ko.words <- function(doc){
+  token=""
+  library(stringr)
+  splited=str_split(doc, " ")[[1]]
+  for(i in splited){
+    extracted=extractNoun(paste0(i,"."))
+    token=c(token, extracted)
+  }
+  token[nchar(token)>=1]
+}
+```
+
+
+```{r}
+t=data[1:100]
+cps=Corpus(VectorSource(t))
+
+stopwords=c("")
+tdm <- TermDocumentMatrix(cps,
+                          control=list(tokenize=ko.words,
+                                       removePunctuation=T,
+                                       removeNumbers=T,
+                                       #weighting=weightTf,
+                                       #stopwords=stopwords,
+                                       wordLengths=c(2, 15)))
+```
+
+이렇게 co-occurence matrix를 만든 다음의 과정은 이전의 네트워크 만들기 과정과 완전히 동일합니다.
+
+```{r}
+mat<-as.matrix(tdm)
+mat2<-mat %*% t(mat)
+```
+
+term-document matrix를 adjacency matrix로 바꿔주고,
+
+```{r}
+library(igraph)
+gra <- graph.adjacency(mat2, weighted=TRUE, mode="undirected")
+gra<-simplify(gra)
+```
+
+igraph 패키지를 활용해 그래프 파일 형식으로 바꿔주시면 됩니다.
+
+```{r}
+write.graph(gra, 'Result/partyannouncement.graphml', format="graphml")
+```

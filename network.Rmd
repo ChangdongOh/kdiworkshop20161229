@@ -1,0 +1,125 @@
+---
+title: "network"
+output: html_document
+---
+
+텍스트 데이터를 연도별로 나눠서 처리하는 데 성공하였고, 연도별로 연설문 데이터를 구했습니다. 이제 이를 활용해서 의미연결망 그래프를 만들어야 합니다. 한번 2007년의 연설문 자료를 사용해서 그래프를 만들어 보도록 하겠습니다. 여기서는 SnowballC와 tm이라는 패키지를 사용합니다. 이 패키지를 사용해서 문장이나 문서 단위로 끊어진 텍스트 데이터에서 단어 사이의 공출현 빈도(co-occurence frequency)를 구할 수 있습니다. tm 패키지에 필요한 말뭉치 데이터 형태로 연설문 데이터를 변환하고, 대문자를 소문자로 바꿔주고 구두점과 숫자를 모두 제거합니다.
+
+```{r}
+library(tm)
+library(SnowballC)
+library(igraph)
+
+t=year[[2007-2002]]
+
+cps<-Corpus(VectorSource(t))
+cps <- tm_map(cps, content_transformer(tolower))
+cps <- tm_map(cps, content_transformer(removePunctuation))
+cps <- tm_map(cps, content_transformer(removeNumbers))
+```
+
+그 다음으로는 불용어(stopwords)를 설정하고 단어의 어근을 추출(stemming)하는 과정을 진행합니다. 불용어는 실제 문서의 의미와는 큰 관련이 없는 조사 등의 의미 없는 단어들을 의미하며, tm 패키지가 기본적으로 제공하는 불용어 리스트인 stopwords("english") 이외의 단어를 연구자가 직접 추가해서 사용할 수 있습니다. 
+
+단어의 어근 추출은 같은 의미를 가졌으나 다르게 쓰여져 있는 단어들을 어근의 형태로 추출해 주는 역할을 합니다.  복수형이나 과거형 등으로 인해 같은 의미의 단어임에도 불구하고 다른 단어로 취급될 경우 네트워크 구성 과정에서 제대로 단어의 의미를 담아낼 수 없으며, 이를 보완하기 위해선 stemming이 필수입니다.
+
+```{r}
+cps <- tm_map(cps, removeWords, c(stopwords("english"),'also','year','help','area','will'))
+cps <- tm_map(cps, stemDocument)
+
+stemDocument('efficiency')
+stemDocument('efficient')
+stemDocument('efficients')
+stemDocument('efficiently')
+```
+
+이렇게 말뭉치에 대한 간단한 전처리를 마친 다음에 공출현 빈도 행렬(co-occurence matrix)을 구합니다. 우측의 values 패널을 통해 이 행렬을 저장한 mat이라는 변수를 클릭해 보면 각각의 문장마다 등장한 단어와 그 빈도수를 행렬의 형태로 나타내고 있습니다. 그러나 네트워크를 만들 때에는 이러한 n행, m열 형식의 행렬이 아니라 단어와 단어가 서로 몇 번 연결되어 있는지를 살펴볼 수 있는 정방형 행렬(adjacency matrix)이 필요합니다. 행렬곱 연산자인 %*% 를 사용해 mat와 mat의 행과 열을 뒤바꾼 t(mat)를 계산하면 이러한 정방형의 행렬을 구할 수 있게 됩니다.
+
+```{r}
+tdm=TermDocumentMatrix(cps)
+mat<-as.matrix(tdm)
+mat2<-mat %*% t(mat)
+```
+
+이렇게 구한 정방형 행렬은 igraph 패키지의 graph.adjacency 함수를 통해 그래프 데이터 형태로 바로 전환할 수 있습니다. 의미연결망 그래프의 경우 방향이 없는 그래프이기 때문에 undirected 옵션을 줘야 하며, 단어와 단어 사이의 연결 강도가 존재(여러 번 함께 등장한 단어끼리는 강한 연결)하는 weighted graph이므로 weighted=TRUE라 설정하게 됩니다. simplify 함수의 경우 그래프를 단순화시켜주는 역할을 합니다. 
+
+```{r}
+library(igraph)
+gra <- graph.adjacency(mat2, weighted=TRUE, mode="undirected")
+gra<-simplify(gra)
+```
+
+이렇게 구한 그래프 데이터는 다양한 형식의 그래프 파일로 만들어 외부 분석 프로그램을 통해서 분석하거나 시각화할 수 있습니다. 여기서는 graphml 파일을 사용하여 저장하겠습니다.
+
+```{r}
+write.graph(gra, 'Result/healthmgmt.graphml', format="graphml")
+```
+
+이렇게 출력한 graphml 파일은 추후 Gephi를 통해 시각화할 것입니다. 일단 파일은 잊어두고, 이 그래프의 전반적인 통계량을 구하는 방법을 살펴보도록 하겠습니다.
+
+그래프 이론에서 네트워크의 개별 구성 요소는 노드(혹은 vortex), 그 노드와 노드 사이의 연결은 엣지라고 부릅니다. 아래 명령어를 사용해서 네트워크의 다양한 속성을 구할 수 있습니다. 모든 노드의 숫자와 엣지의 숫자, 그리고 네트워크의 밀도와 군집화 계수(Clustering Coefficient, Transitivity와 같은 개념), 한 노드로부터 다른 노드로 이동하는 데에 필요한 평균 거리(mean distance) 등을 계산할 수 있습니다.
+
+```{r}
+nodes=vcount(gra)
+edges=ecount(gra)
+density=graph.density(gra)
+transitivity=transitivity(gra)
+meandistance=mean_distance(gra)
+```
+
+군집 탐색(Community Detection) 알고리즘을 사용한 군집 숫자 탐색 역시 가능한데, 여기에 사용할 수 있는 알고리즘은 노드 단위의 CD, 엣지 단위의 CD에 따라 매우 다양합니다. 여기서는 multilevel algorithm(Blondel, Gullaume, Lambiotte and Lefebvre 2008)을 사용합니다. 이러한 군집화가 얼마나 효과적이고 강하게 이뤄졌는지 판별할 수 있는 지표인 Modularity 역시 계산 가능합니다. 마지막으로 이러한 군집 가운데 가장 큰 군집 3개를 골라 전체 노드 가운데 해당 군집이 차지하는 비중을 구할 수 있습니다.
+
+```{r}
+comm<-multilevel.community(gra)
+numcom=length(comm)
+mod<-modularity(comm)
+bigcom3<-as.numeric(sort(sizes(comm), decreasing=T)[1:3]/nodes)
+```
+
+이렇게 구한 네트워크의 속성들을 데이터 프레임 변수 하나에 정리하면 다음과 같습니다.
+
+```{r}
+property=data.frame(matrix(ncol=10))
+property[1,]=c(nodes, edges, density, transitivity, meandistance, numcom, mod, bigcom3)
+names(property)=c('Nodes','Edges','Density','Clustering Coefficient','Mean Distance','Number of Communities','Modularity','Size of 1st Community','Size of 2nd Community','Size of 3rd Community')
+property
+```
+
+마지막으로 전체 네트워크의 단어들 가운데 높은 중심성(centrality)을 가진 단어들을 찾아낼 수 있습니다. 그래프 이론에서의 중심성 개념은 보통 연결(degree), 사이(betweenness), 위세(eigenvalue) 중심성으로 나뉘는데, 이 역시 어렵지 않게 구할 수 있습니다. 여기서는 벡터의 결과값을 내놓는 각 중심성 함수의 결과 데이터를 sort라는 함수를 사용해 내림차순으로 정렬한 다음에 상위 30개만 추려서 나타냈습니다.
+
+```{r}
+deg30=sort(degree(gra), decreasing=T)[1:30]
+btw30=sort(betweenness(gra), decreasing=T)[1:30]
+ec30=sort(eigen_centrality(gra)$vector, decreasing=T)[1:30]
+deg30
+btw30
+ec30
+```
+
+개별 단어들이 전체 단어 가운데 차지하는 비율을 살펴보고자 할 경우 해당 단어의 degree centrality를 전체 엣지의 숫자*2로 나눠주면 됩니다. 예를 들어 'new'가 전체 문서에서 얼마나 등장했는지 알고 싶다면, new의 연결 중심성인 340을 총 엣지 숫자인 29891에 2를 곱한 59782로 나눠주면 됩니다. 결과는 0.0065로, 퍼센테이지로 나타내면 0.65%입니다. 이는 엄밀한 의미에서의 '등장 빈도'는 아니지만, 문서를 구성하는 다른 단어들과 해당 단어가 총 몇 번 함께 등장했느냐를 카운트하는 것이므로 그 단어의 문서에서의 의미론적 중요성을 판별하는 데에는 더욱 적절한 기준이라 볼 수 있습니다.
+
+이를 전체 30개 단어로 확대해서 정리하려면 다음과 같은 형식으로 데이터 프레임을 만들어서 정리하면 됩니다.
+
+```{r}
+deg30=sort(degree(gra), decreasing=T)[1:30]
+degwords=names(deg30)
+deg30=paste0(deg30,", ",round(100*deg30/(edges*2),digits=2),"%")
+btw30=sort(betweenness(gra), decreasing=T)[1:30]
+btwwords=names(btw30)
+btw30=paste0(degree(gra)[btwwords],", ",round(100*degree(gra)[btwwords]/(edges*2),digits=2),"%")
+ec30=sort(eigen_centrality(gra)$vector, decreasing=T)[1:30]
+ecwords=names(ec30)
+ec30=paste0(degree(gra)[ecwords],", ",round(100*degree(gra)[ecwords]/(edges*2),digits=2),"%")
+words=rbind(degwords,deg30,btwwords,btw30,ecwords,ec30)
+colnames(words)=c(1:30)
+row.names(words)=c('Degree Centrality Words',"Words Frequency & Proportion",'Betweenness Centrality Words',"Frequency & Proportion","Eigenvalue Centrality Words","Frequency & Proportion")
+words
+```
+
+최종적으로 구한 중심성 상위 30개 단어와 네트워크 속성 데이터를 엑셀 데이터로 저장해서 분석하려 할 경우, write.csv 함수를 사용해야 합니다. 저장할 데이터 프레임 변수명, 그리고 파일명으로 사용할 문자열을 괄호 안에 입력하면 됩니다.
+
+```{r}
+write.csv(words,"top30centralitywords.csv")
+write.csv(property,"networkproperty.csv")
+```
+
+다음으로는 앞서 저장했던 graphml 파일을 Gephi를 통해 시각화하는 방법을 살펴보도록 하겠습니다.

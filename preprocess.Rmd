@@ -1,0 +1,104 @@
+---
+title: "preprocess"
+output: html_document
+---
+
+프로그래밍 언어로서 R의 세계는 정말 무궁무진합니다. 저 역시 R이라는 언어에 대해서 알고 있는 것은 극도로 일부에 불과합니다. 따라서 이번 워크샵에서는 R이라는 언어 전반에 대해 가르쳐드리는 것이 아니라 텍스트 데이터를 읽어오고, 전처리하고, 이를 네트워크(그래프)로 만드는 데에 필요한 함수와 패키지를 사용하는 것만을 목표로 합니다. R은 자체 내장 함수가 아니라 유저가 만들고 업로드한 패키지를 중심으로 돌아가는 언어입니다. 패키지를 사용하기 위해서는 이를 다운받고 설치해서 불러와야만 합니다. install.packages라는 함수 앞에 있는 주석 표시(#)을 지운 다음 chunk를 실행해 주세요.
+
+```{r}
+#install.packages(c("stringr","tm","SnowballC","igraph","KoNLP"))
+library(stringr)
+
+```
+
+실행하면 R 패키지를 저장하고 배포하는 CRAN이라는 곳에서 패키지를 받아와서 컴퓨터에 설치해 줍니다. 이렇게 설치가 끝난 다음에는 library라는 함수를 사용해서 불러오면 됩니다. 한 번 설치한 다음에는 재차 설치할 필요는 없고, library나 require를 사용해서 불러오기만 하면 바로 사용할 수 있습니다. 
+
+이번 워크샵에서 영어 데이터 전처리를 위해 다룰 예제 데이터는 이번 프로젝트에서 작업했던 산업별 CEO 연설문 자료 가운데 Health Management Industry 자료입니다. Data/eng/Health Management Industry 폴더에 들어가 있습니다. 특정 단어만을 뽑아낸 자료(JHY가 파일 이름 뒤에 붙여진 것)가 아니라 연설문 데이터 그대로 읽어와서 작업한다고 가정하도록 하겠습니다. 일단 워드를 통해 총 10개의 파일(5개 기업, 두 시기로 나눠짐)을 하나로 합친 다음 txt파일로 바꿔서 merged.txt라는 새로운 파일에 저장하였습니다. 이 파일을 읽어오도록 하겠습니다.
+
+```{r}
+fl<-readLines("Data/eng/Health Management Industry/merged.txt")
+```
+
+readLines 함수는 txt파일을 그대로 줄마다 읽어서 문자열 벡터에다가 넣어주는 역할을 합니다. 오른쪽 Values 패널을 보면, 3140줄짜리 파일을 읽어와서 각 줄마다 벡터로 넣어준 것을 알 수 있습니다. 예를 들어서 
+
+```{r}
+fl[37:110]
+```
+
+모든 파일을 열어보는 것은 부담이 되니 일부의 범위만 정해서 파일 구조를 살펴봅시다. 하이픈 여러 개의 우측에 기업의 이름과 연도가 나와 있고, 그 아래에 CEO의 연설문이 나와 있으며 다음번 하이픈이 나오면 끝납니다. 기업 단위로 나눌 필요 없이 연도별로 연설문 데이터를 정리하면 되므로, 벡터의 구성 요소로 끊겨 있는 전체 문서를 하나의 문자열로 합쳐준 다음에 -----------------을 기준으로 나눠주도록 합시다.
+
+```{r}
+p=paste(fl, collapse=" ")
+nchar(p)
+```
+벡터를 하나의 문자열로 합쳐줄 때에는 paste 함수를 씁니다. 벡터로 나뉜 문자열을 합칠 때 중간에 넣어줄 구분자를 collapse= 이라는 옵션을 지정해서 정해줄 수 있는데, 여기서는 중간에 whitespace만을 넣어주기로 했습니다. 만일 공백 없이 붙일 경우 ""를 넣어주면 되며, 슬래시나 쉼표 등을 넣어야 하는 상황에서는 따옴표로 그러한 문자열을 넣어주면 됩니다.
+
+nchar은 문자열의 길이를 계산해 주는 함수인데, 총 47만 자가 넘어가는 문자열 하나에 모든 연설문이 들어갔네요. 그럼 앞서 말한 것처럼 ----------------를 기준으로 이 문자열을 나눠줍니다.
+
+```{r}
+s<-str_split(p,'----------------')[[1]]
+s[5:10]
+```
+
+str_split은 문자열을 나눠주는 함수로, 괄호 안에 나눌 문자열을 넣어주고 그 다음에 나눌 기준이 될 문자열을 넣어주면 리스트의 형태로 데이터를 반환해 줍니다. 리스트 형태의 데이터를 벡터로 받기 위해 뒤에 [[1]]을 넣어줍니다. 출력된 데이터를 끊어서 살펴보면 공백이었던 줄의 ""을 제외하면 깔끔하게 연도에 따라 연설문이 정리되었음을 알 수 있습니다. 
+
+이제 ""를 제거해 줍니다. ""의 경우 문자열 길이가 0이기 때문에 s[nchar(s)>2]의 형식으로 문자열을 호출하면 모두 사라지게 됩니다. 이를 다시 s라는 변수에 할당해 줍니다.
+
+```{r}
+s=s[nchar(s)>2]
+s[5:10]
+```
+
+이제 연도에 따라 연설문을 모아야 합니다. 또한 하이픈 뒤에 기업 이름과 연도가 나와있는 것이 아니라 Supplementary Information이라 되어 있는 항목 역시 따로 처리해 줘야 합니다. 예를 들어 위에 출력된 Supplementary Information의 경우 Astrazeneca 2004에 병합시키거나, 연설문 본문으로 취급하기 어려운 데이터이므로 버려야만 합니다. 일단 여기서는 버리는 방향으로 진행하도록 하겠습니다.
+
+아쉽게도 nchar과 같은 단순한 함수가 아니라 문자열을 활용한 경우 위와 같이 깔끔한 방식으로 대괄호 안에서 조건문을 처리할 수 없습니다. 반복문을 만들어서 변수 s를 처리하도록 하겠습니다. 
+
+```{r}
+s2=""
+for(i in s){
+  if(str_detect(i, "-- Supplementary|-- supplementary|없음|No message")==FALSE){
+    print(i)
+    s2=c(s2, i)
+  }
+}
+```
+
+반복문을 수행하기 전에 s2라는 문자열 변수를 하나 만들어 놓아야 합니다. 그 다음 154개의 문자열 벡터 s의 구성 요소들이 하나씩 i라는 변수에 할당되어 for문 안쪽으로 들어갑니다. 이렇게 들어간 s의 구성 요소들을 if문을 사용해서 처리합니다. 
+
+str_detect(i, '-- Supplementary|-- supplementary|없음|No message')!=TRUE 의 경우 문자열에 따옴표 안의 문자열이 있을 경우 TRUE, 없을 경우 FALSE를 반환하는 조건문입니다. 이를 통해 하이픈과 함께 Supplementary Information이라는 글자가 들어간 문자열을 모두 잡아낼 수 있습니다. 
+
+이를 만족하는 문자열은 ---- Astrazeneca 2004 와 같은 형태로 깔끔하게 기업 이름과 연도, 그리고 CEO 연설 본문이 뒤따라 나오는 문자열 뿐입니다. 제대로 문자열이 걸러졌는지 확인하기 위해 i를 print를 통해 출력하고 나서, 이러한 문자열을 for문 바깥에서 선언했던 변수인 s2에 넣어줍니다.
+
+```{r}
+s2[1:10]
+s2=s2[-1]
+```
+
+s2를 확인해 보면 정확히 기업 이름과 연도, 연설문 내용만이 문자열 벡터 s2에 저장되었음을 알 수 있습니다. 첫 번째 원소로 ""가 여전히 남아있는데, 기초 부분에서 다뤘던 [-1]을 사용해 지워주면 드디어 데이터 정리가 끝나게 됩니다. 결과적으로 총 55개의 연설문을 s2에 저장하게 되었습니다. 이제 각 연설문의 연도를 파악해서 정리해 주는 작업만이 남았습니다. s2에 저장된 연설문들을 보면 s2[1]의 경우,
+
+"------------------------ Astrazeneca 2003  Chief Executive’s message  Our reputation is built on the trust and confidence of all our stakeholders and is one of AstraZeneca’s most valuable assets. Along with our commitment to competitiveness and performance, we will continue to be led by our core values to achieve sustainable success. Stakeholder expectations are constantly evolving and we continuously monitor our internal and external environment for issues relating to our business that affect or concern society today. We use a formal risk assessment process to identify both the opportunities and the challenges that these issues present, and to plan the actions needed to ensure our response is appropriate and consistent. Our current Priority Action Plan is shown on page 4. Corporate responsibility (CR) is not an optional extra ? it must be integral to all that we do. Our strategy to include considerations of corporate responsibility across all our activities is beginning to take..."
+
+다음과 같은 형태로 저장되어 있는 것을 확인할 수 있습니다. 첫 번째 부분이 ---------- 기업이름 연도 형식으로 구성되어 있는데, 여기에서 연도만을 추출해야 합니다. 이를 위해 str_extract라는 함수를 사용합니다. 이 함수의 경우 문자열에서 큰 따옴표 안에 해당하는 조건의 문자열을 반환합니다. 예를 들면 다음과 같습니다. 
+
+```{r}
+str_extract(s2[1], "\\d{4}")
+as.integer(str_extract(s2[1], "\\d{4}"))
+```
+
+str_extract의 따옴표 안에 들어간 것은 '정규식'이라는 문자 표현 방식인데, 특정한 조건에 해당하는 문자열을 표현하는 방식입니다. 2003년부터 2014년까지 모든 연도를 다 입력하는 것은 지나치게 비효율적이기 때문에 사용한 것인데, 매우 복잡하고 어려운 성격을 갖고 있으므로 시간이 남을 때 다루도록 하겠습니다. 이렇게 추출한 "2003"은 겉으로 보기에 숫자처럼 보이지만 실제로는 숫자가 아니라 "2003"이라는 문자열 데이터입니다. 이를 계산이 가능한 숫자로 바꿔주려면 as.integer라는 변수 타입 변경을 해 줘야 합니다. 
+
+그러면 이를 응용해서 s2에 저장된 문자열을 연도에 따라 분류하도록 하겠습니다. 데이터가 다루고 있는 시간 범위는 2003년부터 2014년까지이므로, 총 12개의 저장 공간을 가진 리스트를 만들어서 연도별 연설문을 저장합니다. 연설문에서 뽑아낸 연도에서 2002를 빼준 값을 index라는 변수에 저장하고 리스트 변수의 인덱스로 사용하면 2003년(1번)부터 2014년(12번)까지 순서대로 리스트에 넣어줄 수 있게 됩니다. 또한 의미연결망 네트워크를 만들 때에는 문서가 아닌 문장 단위에서 함께 출현한 단어들끼리 서로 연결을 해 주게 되므로, 연설문을 마침표 단위로 끊어서 sentences라는 벡터에 나눠서 저장한 다음 모으도록 하겠습니다. 이 때에는 str_split을 마침표를 기준으로 사용하면 됩니다. 다만 마침표의 경우 특수한 문자에 해당하기 때문에 앞에 반드시 \\를 붙여줘야 합니다. 또 이렇게 마침표 단위로 문장을 나눌 경우 Dr. Jp Granier와 같은 요소들도 개별 문장처럼 취급될 수 있는데, 이를 위해서 문장 내부의 지나치게 긴 띄어쓰기 공백을 제거한 다음(str_replace_all 사용) 길이가 10글자 이하인 문장을 제거하였습니다.
+
+```{r}
+year=vector("list",12)
+for(i in s2){
+  index=as.integer(str_extract(i, '\\d{4}'))-2002
+  sentences=str_split(i,'\\.')[[1]]
+  sentences=str_replace_all(sentences, "\\s{2,}"," ")
+  sentences[nchar(sentences)>10]
+  year[[index]]=c(year[[index]], sentences)
+}
+year[[1]]
+```
+
+year[[1]]을 호출해 보면 2003년 연설문이 문장 단위로 끊어져서 잘 저장되었음을 알 수 있습니다. 이제 다음으로는 이렇게 정리한 데이터를 바탕으로 의미연결망 그래프를 만드는 방법을 알아봅니다. network.Rmd 파일을 열어 주세요.
